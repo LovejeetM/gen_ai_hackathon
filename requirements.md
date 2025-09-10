@@ -5,4 +5,5 @@
 pip install sounddevice
 pip install numpy
 pip install SpeechRecognition
+pip install pick
 ```

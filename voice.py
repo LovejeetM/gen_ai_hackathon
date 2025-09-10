@@ -1,6 +1,7 @@
 import sounddevice as sd
 import numpy as np 
 import speech_recognition
+from pick import pick
 import wave
 import time
 import threading
@@ -10,11 +11,11 @@ import sys
 import re
 import subprocess
 import tkinter as tk
-from dotenv import load_dotenv
+# from dotenv import load_dotenv
 
 
-load_dotenv()
-key = os.environ.get('API_KEY')
+# load_dotenv()
+# key = os.environ.get('API_KEY')
 
 OUTPUT_FILENAME = "test_sd.wav"
 SAMPLE_RATE = 44100
@@ -33,6 +34,34 @@ writer_thread = None
 stop_writer = threading.Event() 
 
 TRANSPARENT_COLOR = '#abcdef'
+lang_name = "English"
+lang_code = "en-IN"
+
+
+def select_language():
+    languages = [
+        ("English", 'en-IN'),
+        ("Hindi", 'hi-IN'),
+        ("Malayalam", 'ml-IN'),
+        ("Telugu", 'te-IN'),
+    ]
+
+    title = "Select a language (use arrow keys and Enter): "
+    
+    options = [f"{name}" for name, code in languages]
+
+    selected_option, index = pick(options, title, indicator='======>', default_index=0)
+
+    if index is not None:
+        selected_name, selected_code = languages[index]
+        print("-" * 50)
+        print(f"Selected Language: {selected_name}")
+        print("-" * 50)
+        print("\n"*2)
+        return selected_name, selected_code
+    
+    return "English", 'en-IN'
+
 
 
 
@@ -89,11 +118,13 @@ def stop_recording_flag():
         is_recording = False
         filea = save_recording()
         text1 = recognition(filea)
-        findelements(text1) # --------------------------------------------------------------------
+        # send text1 to model and get resp
+        # process_text(text1) # --------------------------------------------------------------------
+        out(text1)
 
 
 
-def synthesize_speech_ffplay(text, model_filename='en_US-hfc_female-medium.onnx'):
+def synthesize_speech_ffplay(text, model_filename):
     piper_executable = os.path.join(os.getcwd(), 'piper', 'piper.exe')
     model_path = os.path.join(os.getcwd(), 'piper', model_filename)
     
@@ -284,7 +315,7 @@ def recognition(audiofile1):
     try: 
         with speech_recognition.AudioFile(audiofile1) as source:
             audio_data = sr.record(source)
-        said_text = sr.recognize_google(audio_data)
+        said_text = sr.recognize_google(audio_data, language=lang_code)
         print("You said:", said_text)
         return said_text
     except sr.UnknownValueError:
@@ -297,8 +328,14 @@ def recognition(audiofile1):
 
 
 def out(speechtext):
-    sil= ",,,,,,,,,,,,......................"+speechtext
-    synthesize_speech_ffplay(sil)
+    sil= ",,,,,,"+speechtext
+    lang_map = {
+        'en-IN': "en_GB-northern_english_male-medium.onnx",
+        'hi-IN': "hi_IN-pratham-medium.onnx",
+        'ml-IN': "ml_IN-arjun-medium.onnx",
+        'te-IN': "te_IN-maya-medium.onnx"
+    }
+    synthesize_speech_ffplay(sil, lang_map[lang_code])
 
 
 
@@ -382,6 +419,7 @@ def toggle_recording():
 
 # MAIN &&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&
 if __name__ == "__main__":
+    lang_name, lang_code = select_language()
     while True:
         try:
             blocksize = int(SAMPLE_RATE * BLOCK_DURATION_MS / 1000)
@@ -427,3 +465,4 @@ if __name__ == "__main__":
                     is_recording = False
                     time.sleep(0.2)
                     save_recording()
+
