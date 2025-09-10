@@ -101,14 +101,14 @@ def process_audio_queue():
         except queue.Empty:
             continue
         except Exception as e:
-            print(f"Error processing audio queue: {e}")
+            
             time.sleep(0.1)
 
 
 def start_recording_flag():
     global is_recording, recorded_frames
     if not is_recording:
-        print("Recording START (Press 'm')")
+        
         is_recording = True
 
 def stop_recording_flag():
@@ -172,7 +172,7 @@ def synthesize_speech_ffplay(text, model_filename):
         nonlocal internal_callback_buffer
         if status:
             print(f"Sounddevice callback status: {status}", flush=True)
-            # Potentially raise sd.CallbackAbort or sd.CallbackStop for critical errors
+            
 
         requested_bytes = frames * bytes_per_sample * channels
         
@@ -240,7 +240,7 @@ def synthesize_speech_ffplay(text, model_filename):
             piper_process.stdin.write(text.encode('utf-8'))
             piper_process.stdin.close()
 
-        time.sleep(0.15) # Allow a brief moment for Piper to start and fill initial queue buffer
+        time.sleep(0.15) # Time for the Piper to start (adjust) and fill initial queue buffer
 
         stream = sd.OutputStream(
             samplerate=sample_rate,
@@ -257,7 +257,7 @@ def synthesize_speech_ffplay(text, model_filename):
         print("Audio stream finished.")
         
         piper_stderr_bytes = piper_process.stderr.read()
-        piper_return_code = piper_process.wait() # Ensure piper process is reaped
+        piper_return_code = piper_process.wait() 
 
         if piper_return_code != 0:
             print(f"Piper process error (Return Code: {piper_return_code}).")
@@ -380,6 +380,7 @@ def makeroot():
 
     rootmain.mainloop()
 
+
 def on_widget_press(event):
     global rootmain
     rootmain._drag_start_x = event.x_root
@@ -416,6 +417,7 @@ def toggle_recording():
         is_button_active_global = False
         rootmain.after(5, stop_recording_flag)
 # tk Main ==============================================================================================
+
 
 # MAIN &&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&
 if __name__ == "__main__":
