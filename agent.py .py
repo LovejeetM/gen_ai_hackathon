@@ -69,9 +69,14 @@ async def main():
             name="NREGA",
             description="Mahatma Gandhi National Rural Employment Guarantee Act (MGNREGA): guarantees up to 100 days of wage employment per year for rural households.",
             synonyms=[
+                # English
                 "MGNREGA", "NREGA scheme", "100 days job scheme", "employment guarantee scheme",
+                # Hindi
                 "मनरेगा", "मनरेगा योजना", "राष्ट्रीय ग्रामीण रोजगार गारंटी योजना", "महात्मा गांधी राष्ट्रीय ग्रामीण रोजगार गारंटी अधिनियम",
-                "మహాత్మా గాంధీ జాతీయ గ్రామీణ ఉపాధి హామీ పథకం", "ఎన్ ఆర్ ఈ జి ఏ"
+                # Telugu
+                "మహాత్మా గాంధీ జాతీయ గ్రామీణ ఉపాధి హామీ పథకం", "ఎన్ ఆర్ ఈ జి ఏ",
+                # Malayalam
+                "എൻആർഇജിഎ", "തൊഴിലുറപ്പ് പദ്ധതി", "മഹാത്മാഗാന്ധി ദേശീയ ഗ്രാമീണ തൊഴിലുറപ്പ് പദ്ധതി"
             ],
         )
 

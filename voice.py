@@ -114,7 +114,7 @@ def start_recording_flag():
 def stop_recording_flag():
     global is_recording
     if is_recording:
-        # print("Recording STOP (Release 'm')")
+        
         is_recording = False
         filea = save_recording()
         text1 = recognition(filea)

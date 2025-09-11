@@ -1,2 +1,5 @@
 piper/
 test_sd.wav
+.env
+parlant-data/
+int11.py

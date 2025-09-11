@@ -4,6 +4,13 @@ from dotenv import load_dotenv
 
 import parlant.sdk as p
 from parlant.core.nlp.generation import SchematicGenerator
+from azure.ai.inference import ChatCompletionsClient
+from azure.ai.inference.models import SystemMessage, UserMessage
+from azure.core.credentials import AzureKeyCredential
+from parlant.core.nlp.generation import SchematicGenerator
+from parlant.core.nlp.service import NLPService
+from parlant.core.nlp.embedding import Embedder, EmbeddingResult
+from parlant.core.nlp.moderation import ModerationService, ModerationCheck, ModerationTag
 
 from openai import AsyncOpenAI
 
@@ -13,16 +20,18 @@ from openai import AsyncOpenAI
 load_dotenv()
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
-if not OPENAI_API_KEY:
-    raise ValueError("OPENAI_API_KEY not found")
 
-# ===============================
-# 2. OpenAI client wrapper
-# ===============================
-class OpenAISchematicGenerator(SchematicGenerator):
+if not GITHUB_TOKEN:
+    raise ValueError("GITHUB_TOKEN not found in .env file")
+
+class GitHubModelsGenerator(SchematicGenerator):
     def __init__(self):
-        self.client = AsyncOpenAI(api_key=OPENAI_API_KEY)
-        self._id = "gpt-4o-mini"
+        self.endpoint = "https://models.github.ai/inference"
+        self._id = "openai/gpt-4o-mini"
+        self.client = ChatCompletionsClient(
+            endpoint=self.endpoint,
+            credential=AzureKeyCredential(GITHUB_TOKEN),
+        )
         self._max_tokens = 2048
 
     @property
@@ -41,18 +50,23 @@ class OpenAISchematicGenerator(SchematicGenerator):
         return DummyTokenizer()
 
     async def generate(self, prompt: str, hints: dict = {}) -> p.SchematicGenerationResult:
+        messages = [
+            SystemMessage("You are a helpful and concise AI assistant."),
+            UserMessage(prompt)
+        ]
         try:
-            response = await self.client.chat.completions.create(
+            response = await asyncio.to_thread(
+                self.client.complete,
+                messages=messages,
                 model=self._id,
-                messages=[{"role": "user", "content": prompt}],
                 max_tokens=self._max_tokens,
                 temperature=hints.get("temperature", 0.3),
             )
-            text = response.choices[0].message.content or "No response from OpenAI"
-            input_tokens = response.usage.prompt_tokens
-            output_tokens = response.usage.completion_tokens
+            text = response.choices[0].message.content or "No response from model"
+            input_tokens = response.usage.prompt_tokens if hasattr(response, 'usage') else len(prompt.split())
+            output_tokens = response.usage.completion_tokens if hasattr(response, 'usage') else len(text.split())
         except Exception as e:
-            text = f"An error occurred with the OpenAI API: {str(e)}"
+            text = f"An error occurred with the API: {str(e)}"
             input_tokens = len(prompt.split())
             output_tokens = 0
 
@@ -66,74 +80,35 @@ class OpenAISchematicGenerator(SchematicGenerator):
             ),
         )
 
-# ===============================
-# 3. Custom NLP service implementation
-# ===============================
-from parlant.core.nlp.service import NLPService
-from parlant.core.nlp.embedding import Embedder, EmbeddingResult
-from parlant.core.nlp.moderation import ModerationService, ModerationCheck, ModerationTag
-from parlant.core.loggers import Logger
-
 class CustomModerationService(ModerationService):
-    def __init__(self):
-        pass
-
     async def check(self, content: str) -> ModerationCheck:
-        inappropriate_words = ['spam', 'scam', 'fraud']
-        flagged = any(word in content.lower() for word in inappropriate_words)
-
-        return ModerationCheck(
-            flagged=flagged,
-            tags=[ModerationTag.ILLICIT] if flagged else []
-        )
+        return ModerationCheck(flagged=False, tags=[])
 
 class CustomEmbedder(Embedder):
-    def __init__(self):
-        self._dimensions = 100
-
     @property
-    def id(self) -> str:
-        return "custom/embedder"
-
+    def id(self) -> str: return "custom/embedder"
     @property
-    def dimensions(self) -> int:
-        return self._dimensions
-
+    def dimensions(self) -> int: return 100
     @property
-    def max_tokens(self) -> int:
-        return 1000
-
+    def max_tokens(self) -> int: return 1000
     @property
     def tokenizer(self):
         class DummyTokenizer:
-            async def estimate_token_count(self, prompt: str) -> int:
-                return len(prompt.split())
+            async def estimate_token_count(self, prompt: str) -> int: return len(prompt.split())
         return DummyTokenizer()
-
     async def embed(self, texts: list[str], hints: dict = {}) -> EmbeddingResult:
-        vectors = []
-        for text in texts:
-            words = text.lower().split()
-            embedding = [words.count(word) for word in set(words)]
-            vectors.append((embedding + [0] * self._dimensions)[:self._dimensions])
-
+        vectors = [[0.0] * 100 for _ in texts]
         return EmbeddingResult(vectors=vectors)
 
-class OpenAINLPService(NLPService):
+class GitHubModelsNLPService(NLPService):
     @staticmethod
     def verify_environment() -> str | None:
-        if not os.environ.get("OPENAI_API_KEY"):
-            return """\
-You're using the OpenAI NLP service, but OPENAI_API_KEY is not set.
-Please set OPENAI_API_KEY in your environment before running Parlant.
-"""
+        if not os.environ.get("GITHUB_TOKEN"):
+            return "GITHUB_TOKEN is not set."
         return None
 
-    def __init__(self):
-        pass
-
     async def get_schematic_generator(self, schema):
-        return OpenAISchematicGenerator()
+        return GitHubModelsGenerator()
 
     async def get_embedder(self) -> Embedder:
         return CustomEmbedder()
@@ -141,55 +116,79 @@ Please set OPENAI_API_KEY in your environment before running Parlant.
     async def get_moderation_service(self) -> ModerationService:
         return CustomModerationService()
 
-def load_custom_nlp_service(container):
-    nlp_service = OpenAINLPService()
-    container[OpenAINLPService] = nlp_service
-    container.get_moderation_service = nlp_service.get_moderation_service
-    container.get_embedder = nlp_service.get_embedder
-    container.get_schematic_generator = nlp_service.get_schematic_generator
-    return container
+# ===============================
+# Part 2: Agent Tools and Setup (from agent.py)
+# ===============================
+async def authenticate_customer(method: str, identifier: str, secret: str = None) -> bool:
+    valid = {
+        ("password", "ramesh", "1234"),
+        ("biometric", "aadhaar123", "1234"),
+        ("otp", "aadhaar123", "1234"),
+    }
+    return (method, identifier, secret) in valid
 
-# ===============================
-# 4. Define Agent
-# ===============================
-async def create_agent(server: p.Server):
+async def get_account_info(user_id: str) -> dict:
+    db = {
+        "ramesh": {"name": "Ramesh", "scheme": "PM-Kisan", "last_credit": "₹2000 on 23-Aug"},
+        "aadhaar123": {"name": "Sita", "scheme": "NREGA", "last_credit": "₹2500 on 15-Aug"},
+    }
+    return db.get(user_id, {"error": "Account not found"})
+
+async def schemes_retriever(context: p.RetrieverContext) -> p.RetrieverResult:
+    try:
+        query = context.interaction.last_customer_message.content.lower()
+        with open("./data/schemes.txt", "r", encoding="utf-8") as f:
+            docs = f.readlines()
+        matches = [doc.strip() for doc in docs if query in doc.lower()]
+        if matches:
+            return p.RetrieverResult(matches)
+        return p.RetrieverResult([])
+    except Exception as e:
+        return p.RetrieverResult([f"Retriever error: {str(e)}"])
+
+async def initialize_agent(selected_language_name):
+    nlp_service = GitHubModelsNLPService()
+    server = p.Server(nlp_service=nlp_service)
+    await server.__aenter__()
+
     agent = await server.create_agent(
-        name="NREGA Assistant",
-        description="Helps users understand NREGA eligibility, benefits, and application steps."
+        name="PRAGATI - Propagation for Rural AI Gateway And Transaction Inquiry",
+        description=f"""PRAGATI is a smart, AI-powered solution that helps rural
+        communities check government benefits. The user is currently speaking {selected_language_name}."""
     )
 
+    await agent.create_term(
+        name="NREGA",
+        description="Mahatma Gandhi National Rural Employment Guarantee Act (MGNREGA)",
+        synonyms=[
+            "MGNREGA", "NREGA scheme", "100 days job scheme", "employment guarantee scheme",
+            "मनरेगा", "मनरेगा योजना", "राष्ट्रीय ग्रामीण रोजगार गारंटी योजना", "महात्मा गांधी राष्ट्रीय ग्रामीण रोजगार गारंटी अधिनियम",
+            "మహాత్మా గాంధీ జాతీయ గ్రామీణ ఉపాధి హామీ పథకం", "ఎన్ ఆర్ ఈ జి ఏ",
+            "എൻആർഇജിഎ", "തൊഴിലുറപ്പ് പദ്ധതി", "മഹാത്മാഗാന്ധി ദേശീയ ഗ്രാമീണ തൊഴിലുറപ്പ് പദ്ധതി"
+        ],
+    )
+
+    await agent.attach_retriever(schemes_retriever, id="schemes")
+    await agent.register_tool(name="authenticate_customer", func=authenticate_customer)
+    await agent.register_tool(name="get_account_info", func=get_account_info)
+    
     await agent.create_guideline(
-            condition="Customer greets (hello, hi, namaste, good morning, etc.)",
-            action="Respond with a warm greeting in their language. Thank them for connecting with PRAGATI and offer help with NREGA, PM-Kisan, or other schemes."
-        )
-
-    return agent
-
-# ===============================
-# 5. Main Server
-# ===============================
-async def main():
-    async with p.Server() as server:
-        agent = await create_agent(server)
-
-        print("NREGA Assistant is running...")
-        print("Agent created successfully!")
-        print(f"Agent name: {agent.name}")
-        print(f"Agent description: {agent.description}")
-
-        print("\nTesting agent interaction...")
-
-        try:
-            customer = await server.create_customer(name="Test User")
-            print(f"Created customer: {customer.name}")
-        except Exception as e:
-            print(f"Error creating customer: {e}")
-
-        try:
-            retrieved_agent = await server.get_agent()
-            print(f"Retrieved agent: {retrieved_agent.name}")
-        except Exception as e:
-            print(f"Error retrieving agent: {e}")
-
-if __name__ == "__main__":
-    asyncio.run(main())
+        condition="For every user interaction",
+        action=f"IMPORTANT: The user has selected {selected_language_name} as their language. You must generate your entire response ONLY in {selected_language_name}."
+    )
+    await agent.create_guideline(
+        condition="Customer greets (hello, hi, namaste, good morning, etc.)",
+        action="Respond with a warm greeting in their language. Thank them for connecting with PRAGATI and offer help with NREGA, PM-Kisan, or other schemes."
+    )
+    await agent.create_guideline(
+        condition="Customer wants to log in or authenticate",
+        action="Ask the customer which method they prefer: password, OTP, or biometric. Then call authenticate_customer tool to verify them.",
+        tools=[authenticate_customer]
+    )
+    await agent.create_guideline(
+        condition="Authenticated customer asks about NREGA balance, job card, or wage status",
+        action="Call get_account_info tool and provide a clear response with scheme name, last credited amount, and pending wages if available.",
+        tools=[get_account_info]
+    )
+    
+    return agent, server
