@@ -1,157 +1,217 @@
-import os
-import sqlite3
-from dotenv import load_dotenv
+from langchain_nvidia_ai_endpoints import ChatNVIDIA
+from langchain.output_parsers import PydanticOutputParser
+from langchain_core.runnables import RunnableLambda
+from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.tools import tool
-from langchain.agents import AgentExecutor, create_tool_calling_agent
-from langchain_nvidia_ai_endpoints import ChatNVIDIA, NVIDIAEmbeddings
-from langchain_community.vectorstores import FAISS
-from langchain_community.document_loaders import TextLoader
-from langchain.text_splitter import CharacterTextSplitter
-from langchain.tools.retriever import create_retriever_tool
+from operator import itemgetter
+from langchain.schema.runnable.passthrough import RunnableAssign
+from pydantic import BaseModel, Field
+from typing import Dict, Union, Optional
+
+
+from dotenv import load_dotenv
+import os
 
 load_dotenv()
+os.environ.get("NVIDIA_API_KEY")
 
-os.getenv("NVIDIA_API_KEY")
-    
-DB_FILE = "parlant.db"
 
-def setup_database():
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
-    cursor.execute("""
-    CREATE TABLE IF NOT EXISTS customers (
-        user_id TEXT PRIMARY KEY,
-        name TEXT NOT NULL,
-        scheme TEXT,
-        last_credit TEXT,
-        auth_secret TEXT 
-    )
-    """)
-    sample_data = [
-        ('ramesh', 'Ramesh', 'PM-Kisan', '₹2000 on 23-Aug', '1234'),
-        ('aadhaar123', 'Sita', 'NREGA', '₹2500 on 15-Aug', 'abcd')
+instruct_chat = ChatNVIDIA(model="mistralai/mistral-7b-instruct-v0.2")
+
+
+
+class KnowledgeBase(BaseModel):
+    first_name: str = Field('unknown', description="Chatting user's first name, `unknown` if unknown")
+    last_name: str = Field('unknown', description="Chatting user's last name, `unknown` if unknown")
+    confirmation: Optional[int] = Field(None, description="Flight Confirmation Number, `-1` if unknown")
+    discussion_summary: str = Field("", description="Summary of discussion so far, including locations, issues, etc.")
+    open_problems: str = Field("", description="Topics that have not been resolved yet")
+    current_goals: str = Field("", description="Current goal for the agent to address")
+
+
+
+def RExtract(pydantic_class, llm, prompt):
+    '''
+    Runnable Extraction module
+    Returns a knowledge dictionary populated by slot-filling extraction
+    '''
+    parser = PydanticOutputParser(pydantic_object=pydantic_class)
+    instruct_merge = RunnableAssign({'format_instructions' : lambda x: parser.get_format_instructions()})
+    def preparse(string):
+        if '{' not in string: string = '{' + string
+        if '}' not in string: string = string + '}'
+        string = (string
+            .replace("\\_", "_")
+            .replace("\n", " ")
+            .replace("\]", "]")
+            .replace("\[", "[")
+        )
+        print(string)  # =================================
+        return string
+    return instruct_merge | prompt | llm | preparse | parser
+
+
+
+parser_prompt = ChatPromptTemplate.from_template(
+    "Update the knowledge base: {format_instructions}. Only use information from the input."
+    "\n\nNEW MESSAGE: {input}"
+)
+
+
+
+
+
+
+def get_flight_info(d: dict) -> str:
+    """
+    Example of a retrieval function which takes a dictionary as key. Resembles SQL DB Query
+    """
+    req_keys = ['first_name', 'last_name', 'confirmation']
+    assert all((key in d) for key in req_keys), f"Expected dictionary with keys {req_keys}, got {d}"
+
+    ## Static dataset. get_key and get_val can be used to work with it, and db is your variable
+    keys = req_keys + ["departure", "destination", "departure_time", "arrival_time", "flight_day"]
+    values = [
+        ["Jane", "Doe", 12345, "San Jose", "New Orleans", "12:30 PM", "9:30 PM", "tomorrow"],
+        ["John", "Smith", 54321, "New York", "Los Angeles", "8:00 AM", "11:00 AM", "Sunday"],
+        ["Alice", "Johnson", 98765, "Chicago", "Miami", "7:00 PM", "11:00 PM", "next week"],
+        ["Bob", "Brown", 56789, "Dallas", "Seattle", "1:00 PM", "4:00 PM", "yesterday"],
     ]
-    cursor.executemany("INSERT OR IGNORE INTO customers VALUES (?, ?, ?, ?, ?)", sample_data)
-    conn.commit()
-    conn.close()
-    print("Database setup complete.")
+    get_key = lambda d: "|".join([d['first_name'], d['last_name'], str(d['confirmation'])])
+    get_val = lambda l: {k:v for k,v in zip(keys, l)}
+    db = {get_key(get_val(entry)) : get_val(entry) for entry in values}
 
-@tool
-def authenticate_customer(identifier: str, secret: str) -> str:
-    """
-    Authenticates a customer using their identifier (like 'ramesh' or 'aadhaar123') and a secret password.
-    Call this tool when a user wants to log in or check their account.
-    """
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
-    cursor.execute(
-        "SELECT * FROM customers WHERE user_id = ? AND auth_secret = ?",
-        (identifier, secret)
-    )
-    result = cursor.fetchone()
-    conn.close()
-    if result:
-        return f"Authentication successful for user {identifier}."
-    else:
-        return "Authentication failed. Please check your details."
-
-@tool
-def get_account_info(user_id: str) -> str:
-    """
-    After a customer is authenticated, use this tool to fetch their account information
-    like their scheme, name, and last credited amount using their user_id.
-    """
-    conn = sqlite3.connect(DB_FILE)
-    conn.row_factory = sqlite3.Row
-    cursor = conn.cursor()
-    cursor.execute("SELECT name, scheme, last_credit FROM customers WHERE user_id = ?", (user_id,))
-    result = cursor.fetchone()
-    conn.close()
-    if result:
-        info = dict(result)
-        return f"Account Information for {info['name']}: Scheme is {info['scheme']}. Last credit was {info['last_credit']}."
-    else:
-        return "Account not found for that user ID. The user must be authenticated first."
-
-def create_scheme_retriever_tool():
-    """
-    Creates a retriever tool that can search the 'schemes.txt' file for information.
-    The agent uses this to answer questions about scheme details, eligibility, etc.
-    """
-    loader = TextLoader("./schemes.txt")
-    documents = loader.load()
-    text_splitter = CharacterTextSplitter(chunk_size=500, chunk_overlap=0)
-    docs = text_splitter.split_documents(documents)
-    embeddings = NVIDIAEmbeddings()
-    vectorstore = FAISS.from_documents(docs, embeddings)
-    retriever = vectorstore.as_retriever()
-    
-    return create_retriever_tool(
-        retriever,
-        "scheme_information_retriever",
-        "Search for information about government schemes like NREGA, PM-Kisan, eligibility, and application processes.",
+    # Search for the matching entry
+    data = db.get(get_key(d))
+    if not data:
+        return (
+            f"Based on {req_keys} = {get_key(d)}) from your knowledge base, no info on the user flight was found."
+            " This process happens every time new info is learned. If it's important, ask them to confirm this info."
+        )
+    return (
+        f"{data['first_name']} {data['last_name']}'s flight from {data['departure']} to {data['destination']}"
+        f" departs at {data['departure_time']} {data['flight_day']} and lands at {data['arrival_time']}."
     )
 
-def main():
-    setup_database()
+
+
+# print(get_flight_info({"first_name" : "Jane", "last_name" : "Doe", "confirmation" : 12345}))
+
+
+
+def get_key_fn(base: BaseModel) -> dict:
+    '''Given a dictionary with a knowledge base, return a key for get_flight_info'''
+    return {  
+        'first_name' : base.first_name,
+        'last_name' : base.last_name,
+        'confirmation' : base.confirmation,
+    }
+
+know_base = KnowledgeBase(first_name = "Jane", last_name = "Doe", confirmation = 12345)
+
+# get_flight_info(get_key_fn(know_base))
+
+get_key = RunnableLambda(get_key_fn)
+
+
+
+external_prompt = ChatPromptTemplate.from_messages([
+    ("system", (
+        "You are a chatbot for SkyFlow Airlines, and you are helping a customer with their issue."
+        " Please chat with them! Stay concise and clear!"
+        " Your running knowledge base is: {know_base}."
+        " This is for you only; Do not mention it!"
+        " \nUsing that, we retrieved the following: {context}\n"
+        " If they provide info and the retrieval fails, ask to confirm their first/last name and confirmation."
+        " Do not ask them any other personal info."
+        " If it's not important to know about their flight, do not ask."
+        " The checking happens automatically; you cannot check manually."
+    )),
     
-    tools = [
-        authenticate_customer,
-        get_account_info,
-        create_scheme_retriever_tool()
-    ]
+    ("user", "{input}"),
+])
 
-    system_prompt = """You are "PRAGATI", a smart, AI-powered assistant for rural communities in India.
-Your full name is Propagation for Rural AI Gateway And Transaction Inquiry.
 
-Your primary goal is to help users check their government benefit status (like NREGA wages or PM-Kisan subsidies).
 
-**Language Rule: Your MOST IMPORTANT rule is to detect the user's language (English, Hindi, Telugu, or Malayalam) in their first message and respond ONLY in that language for the entire conversation.**
-
-**Your Capabilities & Rules:**
-1.  **Greeting:** When a user greets you, respond warmly in their language and introduce yourself as PRAGATI.
-2.  **Authentication:** If a user wants to check their account, ask for their identifier and secret. Then use the `authenticate_customer` tool. Do not ask for information you don't need.
-3.  **Account Info:** Once authenticated, if they ask for their account details, use the `get_account_info` tool with their user_id.
-4.  **Scheme Questions:** If a user asks about *how a scheme works*, its *eligibility*, or the *application process*, use the `scheme_information_retriever` tool to find the answer.
-5.  **Synonyms:** You understand that NREGA is the same as MGNREGA, मनरेगा, or തൊഴിലുറപ്പ് പദ്ധതി.
-6.  **Frustration:** If a user is frustrated about payment delays, be empathetic. Explain that local authorities handle payments and suggest they check with their local Gram Panchayat.
-7.  **Scope:** If asked an unrelated question, politely state that you can only help with government schemes and redirect them.
-"""
-
-    prompt = ChatPromptTemplate.from_messages([
-        ("system", system_prompt),
-        ("placeholder", "{chat_history}"),
-        ("human", "{input}"),
-        ("placeholder", "{agent_scratchpad}"),
-    ])
-
-    llm = ChatNVIDIA(model="meta/llama3-70b-instruct")
-
-    agent = create_tool_calling_agent(llm, tools, prompt)
-
-    agent_executor = AgentExecutor(agent=agent, tools=tools, verbose=True)
-
-    print("\nPRAGATI Agent is running. Type your questions below!")
-    print("   (Try asking in Hindi, Telugu, or Malayalam too!)")
+parser_prompt = ChatPromptTemplate.from_template(
+    "You are a chat assistant representing the airline SkyFlow, and are trying to track info about the conversation."
+    " You have just received a message from the user. Please fill in the schema based on the chat."
+    "\n\n{format_instructions}"
+    "\n\nOLD KNOWLEDGE BASE: {know_base}"
     
-    chat_history = []
-    
-    while True:
-        user_input = input("\nYou: ")
-        if user_input.lower() in {"exit", "quit", "bye"}:
-            print("Agent: Namaste! Thank you for using PRAGATI. Goodbye! 👋")
-            break
-        
-        result = agent_executor.invoke({
-            "input": user_input,
-            "chat_history": chat_history
-        })
-        
-        print(f"Agent: {result['output']}")
-        
-        chat_history.append({"role": "user", "content": user_input})
-        chat_history.append({"role": "assistant", "content": result['output']})
+    "\n\nUSER MESSAGE: {input}"
+    "\n\nNEW KNOWLEDGE BASE: "
+)
 
-if __name__ == "__main__":
-    main()
+## Your goal is to invoke the following through natural conversation
+# get_flight_info({"first_name" : "Jane", "last_name" : "Doe", "confirmation" : 12345}) ->
+#     "Jane Doe's flight from San Jose to New Orleans departs at 12:30 PM tomorrow and lands at 9:30 PM."
+
+chat_llm = ChatNVIDIA(model="mistralai/mistral-7b-instruct-v0.2") | StrOutputParser()
+instruct_llm = ChatNVIDIA(model="mistralai/mistral-7b-instruct-v0.2") | StrOutputParser()
+
+external_chain = external_prompt | chat_llm
+
+
+knowbase_getter = lambda x: RExtract(KnowledgeBase, instruct_llm, parser_prompt)
+
+
+database_getter = lambda x: itemgetter('know_base') | get_key | get_flight_info
+
+
+internal_chain = (
+    RunnableAssign({'know_base' : knowbase_getter})
+    | RunnableAssign({'context' : database_getter})
+)
+
+
+
+state = {'know_base' : KnowledgeBase()}
+
+def chat_gen(message, history=[], return_buffer=True):
+
+    
+    global state
+    state['input'] = message
+    state['history'] = history
+    state['output'] = "" if not history else history[-1][1]
+
+    
+    state = internal_chain.invoke(state)
+    print("State after chain run:")
+    print({k:v for k,v in state.items() if k != "history"})
+
+    
+    buffer = ""
+    for token in external_chain.stream(state):
+        buffer += token
+        yield buffer if return_buffer else token
+
+def queue_fake_streaming_gradio(chat_stream, history = [], max_questions=8):
+
+    
+    for human_msg, agent_msg in history:
+        if human_msg: print("\n[ Human ]:", human_msg)
+        if agent_msg: print("\n[ Agent ]:", agent_msg)
+
+    ## Mimic of the gradio loop with an initial message from the agent.
+    for _ in range(max_questions):
+        message = input("\n[ Human ]: ")
+        print("\n[ Agent ]: ")
+        history_entry = [message, ""]
+        for token in chat_stream(message, history, return_buffer=False):
+            print(token, end='')
+            history_entry[1] += token
+        history += [history_entry]
+        print("\n")
+
+
+chat_history = [[None, "Hello! I'm your SkyFlow agent! How can I help you?"]]
+
+
+queue_fake_streaming_gradio(
+    chat_stream = chat_gen,
+    history = chat_history
+)
+
+
