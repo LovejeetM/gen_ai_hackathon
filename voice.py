@@ -11,6 +11,7 @@ import sys
 import re
 import subprocess
 import tkinter as tk
+from types import GeneratorType
 # from dotenv import load_dotenv
 
 
@@ -38,6 +39,7 @@ lang_name = "English"
 lang_code = "en-IN"
 
 
+
 def select_language():
     languages = [
         ("English", 'en-IN'),
@@ -62,6 +64,30 @@ def select_language():
     
     return "English", 'en-IN'
 
+
+# language_for_agent = {
+#     'en-IN': 'english',
+#     'hi-IN': 'hindi',
+#     'ml-IN': 'malayalam',
+#     'te-IN': 'telugu'
+# }.get(lang_code, 'english')
+
+
+def get_agent_response(user_text):
+    from custom import chat_gen  # Remove importing chat_history
+
+    response = ""
+    agent_stream = chat_gen(user_text, language_for_agent, history=chat_history, return_buffer=False)
+    
+    if isinstance(agent_stream, GeneratorType):
+        for token in agent_stream:
+            response += token
+    else:
+        response = agent_stream  
+    
+    chat_history.append([user_text, response])
+    
+    return response
 
 
 
@@ -118,9 +144,17 @@ def stop_recording_flag():
         is_recording = False
         filea = save_recording()
         text1 = recognition(filea)
-        # send text1 to model and get resp
-        # process_text(text1) # --------------------------------------------------------------------
-        out(text1)
+        if text1:
+            agent_response = ""
+            agent_stream = chat_gen(text1, language_for_agent, history=chat_history, return_buffer=False)
+            for token in agent_stream:
+                agent_response += token
+
+            print("\n[ Agent Response ]:", agent_response)
+            chat_history.append([text1, agent_response])
+        
+
+        out(agent_response)
 
 
 
@@ -422,6 +456,20 @@ def toggle_recording():
 # MAIN &&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&
 if __name__ == "__main__":
     lang_name, lang_code = select_language()
+    language_for_agent = {
+        'en-IN': 'english',
+        'hi-IN': 'hindi',
+        'ml-IN': 'malayalam',
+        'te-IN': 'telugu'
+    }.get(lang_code, 'english')
+
+    # chat_history = [[None, initial_greeting(language_for_agent)]]
+    from custom import initial_greeting, get_key_fn, greetings, chat_gen, chat_history, chat_llm, instruct_chat, instruct_llm
+
+    
+    print("[Initial Greeting]:", chat_history[0][1])
+    out(chat_history[0][1])
+
     while True:
         try:
             blocksize = int(SAMPLE_RATE * BLOCK_DURATION_MS / 1000)

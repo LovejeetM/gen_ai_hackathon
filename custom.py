@@ -18,7 +18,7 @@ instruct_llm = ChatNVIDIA(model="mistralai/mixtral-8x22b-instruct-v0.1") | StrOu
 chat_llm = ChatNVIDIA(model="mistralai/mixtral-8x22b-instruct-v0.1") | StrOutputParser()
 
 
-language = "malayalam"
+# language = "malayalam"
 
 class KnowledgeBase(BaseModel):
     user_id: str = Field('unknown', description="User Aadhaar Number, `unknown` if unknown")
@@ -29,7 +29,7 @@ class KnowledgeBase(BaseModel):
     current_goals: str = Field("", description="What is the current goal of the interaction")
 
 
-def get_scheme_info(user_data: dict) -> str:
+def get_scheme_info(user_data: dict, language_for_agent) -> str:
     """
     Simulates DB lookup for user scheme info, matching both user_id (Aadhaar) and full name.
     """
@@ -49,7 +49,7 @@ def get_scheme_info(user_data: dict) -> str:
             "hindi": "प्रदान किए गए आधार और पूरा नाम के लिए कोई रिकॉर्ड नहीं मिला।",
             "malayalam": "നൽകിയ ആദായവും മുഴുവൻ പേരും പൊരുത്തപ്പെടുന്ന രേഖയൊന്നും കണ്ടെത്തിയില്ല.",
             "telugu": "నివ్వబడిన ఆధార్ మరియు పూర్తి పేరుతో సరిపోయే రికార్డు కనుగొనబడలేదు."
-        }[language]
+        }[language_for_agent]
 
     responses = {
         "english": f"{data['name']} is registered under the {data['scheme']} scheme. Last credit was {data['last_credit']}.",
@@ -58,7 +58,7 @@ def get_scheme_info(user_data: dict) -> str:
         "telugu": f"{data['name']} {data['scheme']} పథకంలో నమోదు అయ్యారు. చివరి చెల్లింపు {data['last_credit']}."
     }
 
-    return responses[language]
+    return responses[language_for_agent]
 
 
 
@@ -78,19 +78,19 @@ parser_prompt = ChatPromptTemplate.from_template(
 
 
 
-
-external_prompt = ChatPromptTemplate.from_messages([
-    ("system", (
-        "You are PRAGATI, a smart agent helping rural citizens to check their government scheme status like NREGA or PM-Kisan."
-        " Always respond in the global language selected: " + language + "."
-        " Do not mix languages. If the user tries to mix languages, respond in " + language + " only."
-        " Ensure the user provides both full name and Aadhaar number so you can verify their identity."
-        " This is private knowledge: {know_base}."
-        " We retrieved the following user info: {context}."
-        " Provide a clear, concise, and helpful answer regarding the user's scheme status or last transaction."
-    )),
-    ("user", "{input}"),
-])
+def external_prompt(language_for_agent):
+    return ChatPromptTemplate.from_messages([
+        ("system", (
+            "You are PRAGATI, a smart agent helping rural citizens to check their government scheme status like NREGA or PM-Kisan."
+            " Always respond in the global language selected: " + language_for_agent + "."
+            " Do not mix languages. If the user tries to mix languages, respond in " + language_for_agent + " only."
+            " Ensure the user provides both full name and Aadhaar number so you can verify their identity."
+            " This is private knowledge: {know_base}."
+            " We retrieved the following user info: {context}."
+            " Provide a clear, concise, and helpful answer regarding the user's scheme status or last transaction."
+        )),
+        ("user", "{input}"),
+    ])
 
 
 get_key = RunnableLambda(get_key_fn)
@@ -107,7 +107,10 @@ def RExtract(pydantic_class, llm, prompt):
 
 knowbase_getter = lambda x: RExtract(KnowledgeBase, instruct_llm, parser_prompt)
 
-database_getter = lambda x: itemgetter('know_base') | get_key | get_scheme_info
+def database_getter(user_data, language_for_agent):
+    key_data = get_key_fn(KnowledgeBase())  
+    return get_scheme_info(key_data, language_for_agent)
+
 
 internal_chain = (
     RunnableAssign({'know_base': knowbase_getter})
@@ -124,13 +127,15 @@ external_chain = external_prompt | chat_llm
 
 state = {'know_base': KnowledgeBase()}
 
-def chat_gen(message, history=[], return_buffer=True):
+def chat_gen(message, language_for_agent, history=[], return_buffer=True):
     global state
     state['input'] = message
     state['history'] = history
     state['output'] = "" if not history else history[-1][1]
 
     state = internal_chain.invoke(state)
+
+    external_chain = external_prompt(language_for_agent) | chat_llm
 
     buffer = ""
     for token in external_chain.stream(state):
@@ -163,11 +168,11 @@ def initial_greeting(lang: str) -> str:
     return greetings.get(lang, greetings['english'])  
 
 
-chat_history = [[None, initial_greeting(language)]]
+# chat_history = [[None, initial_greeting(language_for_agent)]]
 
-queue_streaming(
-    chat_stream=chat_gen,
-    history=chat_history
-)
+# queue_streaming(
+#     chat_stream=chat_gen,
+#     history=chat_history
+# )
 
 
