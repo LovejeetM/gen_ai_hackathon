@@ -463,12 +463,15 @@ if __name__ == "__main__":
         'te-IN': 'telugu'
     }.get(lang_code, 'english')
 
-    # chat_history = [[None, initial_greeting(language_for_agent)]]
-    from custom import initial_greeting, get_key_fn, greetings, chat_gen, chat_history, chat_llm, instruct_chat, instruct_llm
+
+    # import after selecting the language
+    from custom import initial_greeting, chat_gen, get_key_fn, chat_llm, instruct_chat, instruct_llm
 
     
-    print("[Initial Greeting]:", chat_history[0][1])
-    out(chat_history[0][1])
+    chat_history = [[None, initial_greeting(language_for_agent)]]
+    argsout = ",,,,,,,,,,,,"+chat_history[0][1]
+    threading.Thread(target=out, args=(argsout,), daemon=True).start()
+    
 
     while True:
         try:

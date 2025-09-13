@@ -107,7 +107,8 @@ def RExtract(pydantic_class, llm, prompt):
 
 knowbase_getter = lambda x: RExtract(KnowledgeBase, instruct_llm, parser_prompt)
 
-def database_getter(user_data, language_for_agent):
+def database_getter(user_data):
+    language_for_agent = user_data.get('language_for_agent')
     key_data = get_key_fn(KnowledgeBase())  
     return get_scheme_info(key_data, language_for_agent)
 
@@ -132,6 +133,7 @@ def chat_gen(message, language_for_agent, history=[], return_buffer=True):
     state['input'] = message
     state['history'] = history
     state['output'] = "" if not history else history[-1][1]
+    state['language_for_agent'] = language_for_agent  # <- Add this line
 
     state = internal_chain.invoke(state)
 

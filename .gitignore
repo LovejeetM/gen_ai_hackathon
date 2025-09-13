@@ -5,3 +5,4 @@ parlant-data/
 int11.py
 sample/
 nltk11.py
+__pycache__/
