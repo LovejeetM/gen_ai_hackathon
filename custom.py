@@ -137,7 +137,7 @@ def chat_gen(message, history=[], return_buffer=True):
         buffer += token
         yield buffer if return_buffer else token
 
-def queue_fake_streaming_gradio(chat_stream, history = [], max_questions=8):
+def queue_streaming(chat_stream, history = [], max_questions=8):
     for human_msg, agent_msg in history:
         if human_msg: print("\n[ Human ]:", human_msg)
         if agent_msg: print("\n[ Agent ]:", agent_msg)
@@ -152,10 +152,22 @@ def queue_fake_streaming_gradio(chat_stream, history = [], max_questions=8):
         history += [history_entry]
         print("\n")
 
-chat_history = [[None, "Hello! I'm your PRAGATI agent! How can I help you?"]]
+greetings = {
+    "english": "Hello! I am your PRAGATI agent here to help you check your government scheme status.",
+    "hindi": "नमस्ते! मैं आपका प्रगति एजेंट हूँ, आपकी सरकारी योजना स्थिति जांचने में मदद करने के लिए।",
+    "malayalam": "നമസ്കാരം! ഞാൻ നിങ്ങളുടെ പ്രഗതി പ്രതിനിധിയാണ്, സർക്കാർ പദ്ധതികളുടെ സ്ഥിതി പരിശോധിക്കാൻ നിങ്ങളെ സഹായിക്കാൻ ഇവിടെ വന്നിരിക്കുന്നു.",
+    "telugu": "నమస్కారం! నేను మీ ప్రగతి ఏజెంట్, మీరు మీ ప్రభుత్వ పథక స్థితిని తనిఖీ చేయడంలో సహాయపడటానికి ఉన్నాను."
+}
 
-queue_fake_streaming_gradio(
+def initial_greeting(lang: str) -> str:
+    return greetings.get(lang, greetings['english'])  
+
+
+chat_history = [[None, initial_greeting(language)]]
+
+queue_streaming(
     chat_stream=chat_gen,
     history=chat_history
 )
+
 
