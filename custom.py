@@ -21,7 +21,8 @@ chat_llm = ChatNVIDIA(model="mistralai/mixtral-8x22b-instruct-v0.1") | StrOutput
 language = "malayalam"
 
 class KnowledgeBase(BaseModel):
-    user_id: str = Field('unknown', description="User Aadhaar or identifier, `unknown` if unknown")
+    user_id: str = Field('unknown', description="User Aadhaar Number, `unknown` if unknown")
+    full_name: str = Field('unknown', description="Full name of the user, `unknown` if unknown")
     authentication_status: Optional[bool] = Field(None, description="Whether user is authenticated")
     discussion_summary: str = Field("", description="Summary of discussion so far")
     open_problems: str = Field("", description="Open issues yet to be resolved")
@@ -30,7 +31,7 @@ class KnowledgeBase(BaseModel):
 
 def get_scheme_info(user_data: dict) -> str:
     """
-    Simulates DB lookup for user scheme info based on user_id
+    Simulates DB lookup for user scheme info, matching both user_id (Aadhaar) and full name.
     """
     db = {
         "aadhaar123": {"name": "Sita", "scheme": "NREGA", "last_credit": "₹2500 on 15-Aug"},
@@ -38,14 +39,16 @@ def get_scheme_info(user_data: dict) -> str:
     }
 
     user_id = user_data['user_id']
+    full_name = user_data.get('full_name', "").strip().lower()
+
     data = db.get(user_id)
 
-    if not data:
+    if not data or data['name'].lower() != full_name:
         return {
-            "english": "No record found for the provided identifier.",
-            "hindi": "प्रदान किए गए पहचानकर्ता के लिए कोई रिकॉर्ड नहीं मिला।",
-            "malayalam": "നൽകിയ തിരിച്ചറിയൽക്കായി റെക്കോർഡ് കണ്ടെത്തിയില്ല.",
-            "telugu": "నివ్వబడిన గుర్తింపు కోసం రికార్డు కనుగొనబడలేదు."
+            "english": "No record found matching the provided Aadhaar and full name.",
+            "hindi": "प्रदान किए गए आधार और पूरा नाम के लिए कोई रिकॉर्ड नहीं मिला।",
+            "malayalam": "നൽകിയ ആദായവും മുഴുവൻ പേരും പൊരുത്തപ്പെടുന്ന രേഖയൊന്നും കണ്ടെത്തിയില്ല.",
+            "telugu": "నివ్వబడిన ఆధార్ మరియు పూర్తి పేరుతో సరిపోయే రికార్డు కనుగొనబడలేదు."
         }[language]
 
     responses = {
@@ -59,8 +62,13 @@ def get_scheme_info(user_data: dict) -> str:
 
 
 
+
 def get_key_fn(base: BaseModel) -> dict:
-    return {'user_id': base.user_id}
+    return {
+        'user_id': base.user_id,
+        'full_name': base.full_name
+    }
+
 
 
 parser_prompt = ChatPromptTemplate.from_template(
@@ -73,15 +81,17 @@ parser_prompt = ChatPromptTemplate.from_template(
 
 external_prompt = ChatPromptTemplate.from_messages([
     ("system", (
-        "You are PRAGATI, a smart agent helping rural citizens to check NREGA or other government schemes."
-        " You must answer in the global language: " + language + "."
+        "You are PRAGATI, a smart agent helping rural citizens to check their government scheme status like NREGA or PM-Kisan."
+        " Always respond in the global language selected: " + language + "."
+        " Do not mix languages. If the user tries to mix languages, respond in " + language + " only."
+        " Ensure the user provides both full name and Aadhaar number so you can verify their identity."
         " This is private knowledge: {know_base}."
         " We retrieved the following user info: {context}."
-        " Respond concisely and helpfully."
+        " Provide a clear, concise, and helpful answer regarding the user's scheme status or last transaction."
     )),
-    
     ("user", "{input}"),
 ])
+
 
 get_key = RunnableLambda(get_key_fn)
 
