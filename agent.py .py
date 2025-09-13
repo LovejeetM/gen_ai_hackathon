@@ -1,187 +1,157 @@
-import asyncio
-import parlant.sdk as p
+import os
+import sqlite3
 from dotenv import load_dotenv
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.tools import tool
+from langchain.agents import AgentExecutor, create_tool_calling_agent
+from langchain_nvidia_ai_endpoints import ChatNVIDIA, NVIDIAEmbeddings
+from langchain_community.vectorstores import FAISS
+from langchain_community.document_loaders import TextLoader
+from langchain.text_splitter import CharacterTextSplitter
+from langchain.tools.retriever import create_retriever_tool
 
-load_dotenv(".env")
+load_dotenv()
 
-# ------------------- Mock Tools -----------------------
+os.getenv("NVIDIA_API_KEY")
+    
+DB_FILE = "parlant.db"
 
-async def authenticate_customer(method: str, identifier: str, secret: str = None) -> bool:
+def setup_database():
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS customers (
+        user_id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        scheme TEXT,
+        last_credit TEXT,
+        auth_secret TEXT 
+    )
+    """)
+    sample_data = [
+        ('ramesh', 'Ramesh', 'PM-Kisan', '₹2000 on 23-Aug', '1234'),
+        ('aadhaar123', 'Sita', 'NREGA', '₹2500 on 15-Aug', 'abcd')
+    ]
+    cursor.executemany("INSERT OR IGNORE INTO customers VALUES (?, ?, ?, ?, ?)", sample_data)
+    conn.commit()
+    conn.close()
+    print("Database setup complete.")
+
+@tool
+def authenticate_customer(identifier: str, secret: str) -> str:
     """
-    Simulates authentication.
-    method: 'password', 'biometric', or 'otp'
-    identifier: username or Aadhaar
-    secret: password, fingerprint hash, or OTP code
+    Authenticates a customer using their identifier (like 'ramesh' or 'aadhaar123') and a secret password.
+    Call this tool when a user wants to log in or check their account.
     """
-    valid = {
-        ("password", "ramesh", "1234"),
-        ("biometric", "aadhaar123", "1234"),
-        ("otp", "aadhaar123", "1234"),
-    }
-    return (method, identifier, secret) in valid
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT * FROM customers WHERE user_id = ? AND auth_secret = ?",
+        (identifier, secret)
+    )
+    result = cursor.fetchone()
+    conn.close()
+    if result:
+        return f"Authentication successful for user {identifier}."
+    else:
+        return "Authentication failed. Please check your details."
 
-
-async def get_account_info(user_id: str) -> dict:
+@tool
+def get_account_info(user_id: str) -> str:
     """
-    Fetch customer info from DB (mock data for now).
+    After a customer is authenticated, use this tool to fetch their account information
+    like their scheme, name, and last credited amount using their user_id.
     """
-    db = {
-        "ramesh": {"name": "Ramesh", "scheme": "PM-Kisan", "last_credit": "₹2000 on 23-Aug"},
-        "aadhaar123": {"name": "Sita", "scheme": "NREGA", "last_credit": "₹2500 on 15-Aug"},
-    }
-    return db.get(user_id, {"error": "Account not found"})
+    conn = sqlite3.connect(DB_FILE)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    cursor.execute("SELECT name, scheme, last_credit FROM customers WHERE user_id = ?", (user_id,))
+    result = cursor.fetchone()
+    conn.close()
+    if result:
+        info = dict(result)
+        return f"Account Information for {info['name']}: Scheme is {info['scheme']}. Last credit was {info['last_credit']}."
+    else:
+        return "Account not found for that user ID. The user must be authenticated first."
 
-
-# ------------------- Custom Retriever -----------------------
-
-async def schemes_retriever(context: p.RetrieverContext) -> p.RetrieverResult:
+def create_scheme_retriever_tool():
     """
-    Simple retriever to fetch scheme info from local file (schemes.txt).
+    Creates a retriever tool that can search the 'schemes.txt' file for information.
+    The agent uses this to answer questions about scheme details, eligibility, etc.
     """
-    try:
-        query = context.interaction.last_customer_message.content.lower()
-        with open("./data/schemes.txt", "r", encoding="utf-8") as f:
-            docs = f.readlines()
+    loader = TextLoader("./schemes.txt")
+    documents = loader.load()
+    text_splitter = CharacterTextSplitter(chunk_size=500, chunk_overlap=0)
+    docs = text_splitter.split_documents(documents)
+    embeddings = NVIDIAEmbeddings()
+    vectorstore = FAISS.from_documents(docs, embeddings)
+    retriever = vectorstore.as_retriever()
+    
+    return create_retriever_tool(
+        retriever,
+        "scheme_information_retriever",
+        "Search for information about government schemes like NREGA, PM-Kisan, eligibility, and application processes.",
+    )
 
-        matches = [doc.strip() for doc in docs if query in doc.lower()]
-        if matches:
-            return p.RetrieverResult(matches)
+def main():
+    setup_database()
+    
+    tools = [
+        authenticate_customer,
+        get_account_info,
+        create_scheme_retriever_tool()
+    ]
 
-        return p.RetrieverResult([])  # no results
-    except Exception as e:
-        return p.RetrieverResult([f"Retriever error: {str(e)}"])
+    system_prompt = """You are "PRAGATI", a smart, AI-powered assistant for rural communities in India.
+Your full name is Propagation for Rural AI Gateway And Transaction Inquiry.
 
+Your primary goal is to help users check their government benefit status (like NREGA wages or PM-Kisan subsidies).
 
-# ------------------- Main Agent -----------------------
+**Language Rule: Your MOST IMPORTANT rule is to detect the user's language (English, Hindi, Telugu, or Malayalam) in their first message and respond ONLY in that language for the entire conversation.**
 
-async def main():
-    async with p.Server() as server:
-        agent = await server.create_agent(
-            name="PRAGATI - Propagation for Rural AI Gateway And Transaction Inquiry",
-            description="""PRAGATI is a smart, AI-powered solution that helps rural
-            communities check if government benefits (like NREGA wages or PM-Kisan subsidies)
-            have arrived in their bank accounts. Citizens authenticate via password, biometric,
-            or OTP, and get instant updates in their local language."""
-        )
+**Your Capabilities & Rules:**
+1.  **Greeting:** When a user greets you, respond warmly in their language and introduce yourself as PRAGATI.
+2.  **Authentication:** If a user wants to check their account, ask for their identifier and secret. Then use the `authenticate_customer` tool. Do not ask for information you don't need.
+3.  **Account Info:** Once authenticated, if they ask for their account details, use the `get_account_info` tool with their user_id.
+4.  **Scheme Questions:** If a user asks about *how a scheme works*, its *eligibility*, or the *application process*, use the `scheme_information_retriever` tool to find the answer.
+5.  **Synonyms:** You understand that NREGA is the same as MGNREGA, मनरेगा, or തൊഴിലുറപ്പ് പദ്ധതി.
+6.  **Frustration:** If a user is frustrated about payment delays, be empathetic. Explain that local authorities handle payments and suggest they check with their local Gram Panchayat.
+7.  **Scope:** If asked an unrelated question, politely state that you can only help with government schemes and redirect them.
+"""
 
-        # ----------- Terms (Synonyms for NREGA) ----------------
-        await agent.create_term(
-            name="NREGA",
-            description="Mahatma Gandhi National Rural Employment Guarantee Act (MGNREGA): guarantees up to 100 days of wage employment per year for rural households.",
-            synonyms=[
-                # English
-                "MGNREGA", "NREGA scheme", "100 days job scheme", "employment guarantee scheme",
-                # Hindi
-                "मनरेगा", "मनरेगा योजना", "राष्ट्रीय ग्रामीण रोजगार गारंटी योजना", "महात्मा गांधी राष्ट्रीय ग्रामीण रोजगार गारंटी अधिनियम",
-                # Telugu
-                "మహాత్మా గాంధీ జాతీయ గ్రామీణ ఉపాధి హామీ పథకం", "ఎన్ ఆర్ ఈ జి ఏ",
-                # Malayalam
-                "എൻആർഇജിഎ", "തൊഴിലുറപ്പ് പദ്ധതി", "മഹാത്മാഗാന്ധി ദേശീയ ഗ്രാമീണ തൊഴിലുറപ്പ് പദ്ധതി"
-            ],
-        )
+    prompt = ChatPromptTemplate.from_messages([
+        ("system", system_prompt),
+        ("placeholder", "{chat_history}"),
+        ("human", "{input}"),
+        ("placeholder", "{agent_scratchpad}"),
+    ])
 
-        # ----------- Attach Retriever ----------------
-        await agent.attach_retriever(schemes_retriever, id="schemes")
+    llm = ChatNVIDIA(model="meta/llama3-70b-instruct")
 
-        # ----------- Tools ----------------
-        await agent.register_tool(
-            name="authenticate_customer",
-            description="Authenticate customer via password, biometric, or OTP.",
-            func=authenticate_customer,
-        )
+    agent = create_tool_calling_agent(llm, tools, prompt)
 
-        await agent.register_tool(
-            name="get_account_info",
-            description="Retrieve customer account details (balance, scheme, last credit).",
-            func=get_account_info,
-        )
+    agent_executor = AgentExecutor(agent=agent, tools=tools, verbose=True)
 
-        # ----------- Guidelines ----------------
+    print("\nPRAGATI Agent is running. Type your questions below!")
+    print("   (Try asking in Hindi, Telugu, or Malayalam too!)")
+    
+    chat_history = []
+    
+    while True:
+        user_input = input("\nYou: ")
+        if user_input.lower() in {"exit", "quit", "bye"}:
+            print("Agent: Namaste! Thank you for using PRAGATI. Goodbye! 👋")
+            break
+        
+        result = agent_executor.invoke({
+            "input": user_input,
+            "chat_history": chat_history
+        })
+        
+        print(f"Agent: {result['output']}")
+        
+        chat_history.append({"role": "user", "content": user_input})
+        chat_history.append({"role": "assistant", "content": result['output']})
 
-        # ---------------------------
-        # Language Consistency Rule (High Priority)
-        # ---------------------------
-        await agent.create_guideline(
-            condition="For every user interaction",
-            action="IMPORTANT: Always detect the language of the user's message (e.g., English, Hindi, Telugu, Malayalam) and generate your entire response ONLY in that same language."
-        )
-
-        # ---------------------------
-        # Greeting & Onboarding
-        # ---------------------------
-        await agent.create_guideline(
-            condition="Customer greets (hello, hi, namaste, good morning, etc.)",
-            action="Respond with a warm greeting in their language. Thank them for connecting with PRAGATI and offer help with NREGA, PM-Kisan, or other schemes."
-        )
-
-        # ---------------------------
-        # Authentication
-        # ---------------------------
-        await agent.create_guideline(
-            condition="Customer wants to log in or authenticate",
-            action="Ask the customer which method they prefer: password, OTP, or biometric. Then call authenticate_customer tool to verify them.",
-            tools=[authenticate_customer]
-        )
-
-        await agent.create_guideline(
-            condition="Customer has failed authentication more than once",
-            action="Politely inform them about retry limits and suggest visiting their local panchayat or customer service center for support."
-        )
-
-        # ---------------------------
-        # Account / Wages Info
-        # ---------------------------
-        await agent.create_guideline(
-            condition="Authenticated customer asks about NREGA balance, job card, or wage status",
-            action="Call get_account_info tool and provide a clear response with scheme name, last credited amount, and pending wages if available.",
-            tools=[get_account_info]
-        )
-
-        await agent.create_guideline(
-            condition="Customer asks when their wages will be credited or why payment is delayed",
-            action="Explain that NREGA payments are processed by local authorities and can sometimes be delayed. Advise them to check with their local panchayat office if the issue persists."
-        )
-
-        # ---------------------------
-        # Scheme Information (Retriever)
-        # ---------------------------
-        await agent.create_guideline(
-            condition="Customer asks about NREGA scheme details, eligibility, or application process",
-            action="Query the 'schemes' retriever and explain the answer in simple words in the customer's preferred language."
-        )
-
-        await agent.create_guideline(
-            condition="Customer asks about another government scheme (PM-Kisan, pensions, subsidies, etc.)",
-            action="Query the 'schemes' retriever and summarize the relevant scheme information. Make it practical and easy to understand."
-        )
-
-        # ---------------------------
-        # Complaints / Frustration Handling
-        # ---------------------------
-        await agent.create_guideline(
-            condition="Customer expresses frustration, anger, or dissatisfaction about payments, services, or schemes",
-            action="Acknowledge their concern empathetically, apologize for inconvenience, and guide them to practical next steps (like local authority, helpline, or grievance portal)."
-        )
-
-        # ---------------------------
-        # General Queries
-        # ---------------------------
-        await agent.create_guideline(
-            condition="Customer asks a general or unrelated question not about schemes",
-            action="Politely explain that PRAGATI focuses on NREGA and government schemes, and redirect them back to supported topics."
-        )
-
-        # ----------- Interactive Chat Loop ----------------
-        print("\nPRAGATI Agent is running. Type your questions below!")
-        while True:
-            user_input = input("\nYou: ")
-            if user_input.lower() in {"exit", "quit", "bye"}:
-                print("Agent: Namaste! Thank you for using PRAGATI. Goodbye!")
-                break
-            response = await agent.chat(user_input)
-            print("Agent:", response)
-
-
-# ------------------- Run -----------------------
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()

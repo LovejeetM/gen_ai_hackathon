@@ -3,3 +3,5 @@ test_sd.wav
 .env
 parlant-data/
 int11.py
+sample/
+nltk11.py
