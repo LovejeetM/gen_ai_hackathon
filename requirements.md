@@ -7,9 +7,9 @@ pip install numpy
 pip install SpeechRecognition
 pip install pick
 pip install langchain 
-pip langchain-core 
-pip langchain-nvidia-ai-endpoints 
-pip pydantic python-dotenv
+pip install langchain-core 
+pip install langchain-nvidia-ai-endpoints 
+pip install pydantic python-dotenv
 
 ```
 ---
