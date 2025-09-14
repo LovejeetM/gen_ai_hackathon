@@ -9,9 +9,17 @@ from pydantic import BaseModel, Field
 from typing import Dict, Union, Optional
 from dotenv import load_dotenv
 import os
+import re
 
 load_dotenv()
 os.environ.get("NVIDIA_API_KEY")
+
+def extract_aadhaar(text):
+
+    match = re.search(r'\b(\d{3,12})\b', text)
+    if match:
+        return match.group(1)
+    return 'unknown'
 
 instruct_chat = ChatNVIDIA(model="mistralai/mixtral-8x22b-instruct-v0.1")
 instruct_llm = ChatNVIDIA(model="mistralai/mixtral-8x22b-instruct-v0.1") | StrOutputParser()
@@ -109,8 +117,9 @@ knowbase_getter = lambda x: RExtract(KnowledgeBase, instruct_llm, parser_prompt)
 
 def database_getter(user_data):
     language_for_agent = user_data.get('language_for_agent')
-    key_data = get_key_fn(KnowledgeBase())  
+    key_data = {'user_id': user_data.get('user_id', 'unknown')}
     return get_scheme_info(key_data, language_for_agent)
+
 
 
 internal_chain = (
@@ -133,7 +142,8 @@ def chat_gen(message, language_for_agent, history=[], return_buffer=True):
     state['input'] = message
     state['history'] = history
     state['output'] = "" if not history else history[-1][1]
-    state['language_for_agent'] = language_for_agent  # <- Add this line
+    state['language_for_agent'] = language_for_agent
+    state['user_id'] = extract_aadhaar(message)  
 
     state = internal_chain.invoke(state)
 
