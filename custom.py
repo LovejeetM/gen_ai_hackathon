@@ -21,8 +21,8 @@ chat_llm = ChatNVIDIA(model="mistralai/mixtral-8x22b-instruct-v0.1") | StrOutput
 # language = "malayalam"
 
 class KnowledgeBase(BaseModel):
-    user_id: str = Field('unknown', description="User Aadhaar Number, `unknown` if unknown")
-    full_name: str = Field('unknown', description="Full name of the user, `unknown` if unknown")
+    user_id: str = Field('unknown', description="User Aadhaar Number of user, `unknown` if unknown")
+    # full_name: str = Field('unknown', description="Full name of the user, `unknown` if unknown")
     authentication_status: Optional[bool] = Field(None, description="Whether user is authenticated")
     discussion_summary: str = Field("", description="Summary of discussion so far")
     open_problems: str = Field("", description="Open issues yet to be resolved")
@@ -34,18 +34,18 @@ def get_scheme_info(user_data: dict, language_for_agent) -> str:
     Simulates DB lookup for user scheme info, matching both user_id (Aadhaar) and full name.
     """
     db = {
-        "aadhaar123": {"name": "Sita", "scheme": "NREGA", "last_credit": "₹2500 on 15-Aug"},
-        "aadhaar456": {"name": "Ramesh", "scheme": "PM-Kisan", "last_credit": "₹2000 on 23-Aug"},
+        "123": {"name": "Sita", "scheme": "NREGA", "last_credit": "₹2500 on 15-Aug"},
+        "456": {"name": "Ramesh", "scheme": "PM-Kisan", "last_credit": "₹2000 on 23-Aug"},
     }
 
     user_id = user_data['user_id']
-    full_name = user_data.get('full_name', "").strip().lower()
+    # full_name = user_data.get('full_name', "").strip().lower()
 
     data = db.get(user_id)
 
-    if not data or data['name'].lower() != full_name:
+    if not data: #if not data or data['name'].lower() != full_name:
         return {
-            "english": "No record found matching the provided Aadhaar and full name.",
+            "english": "No record found matching the provided Aadhaar.",
             "hindi": "प्रदान किए गए आधार और पूरा नाम के लिए कोई रिकॉर्ड नहीं मिला।",
             "malayalam": "നൽകിയ ആദായവും മുഴുവൻ പേരും പൊരുത്തപ്പെടുന്ന രേഖയൊന്നും കണ്ടെത്തിയില്ല.",
             "telugu": "నివ్వబడిన ఆధార్ మరియు పూర్తి పేరుతో సరిపోయే రికార్డు కనుగొనబడలేదు."
@@ -66,7 +66,7 @@ def get_scheme_info(user_data: dict, language_for_agent) -> str:
 def get_key_fn(base: BaseModel) -> dict:
     return {
         'user_id': base.user_id,
-        'full_name': base.full_name
+        # 'full_name': base.full_name
     }
 
 
@@ -82,9 +82,9 @@ def external_prompt(language_for_agent):
     return ChatPromptTemplate.from_messages([
         ("system", (
             "You are PRAGATI, a smart agent helping rural citizens to check their government scheme status like NREGA or PM-Kisan."
-            " Always respond in the global language selected: " + language_for_agent + "."
-            " Do not mix languages. If the user tries to mix languages, respond in " + language_for_agent + " only."
-            " Ensure the user provides both full name and Aadhaar number so you can verify their identity."
+            " Always respond in the global language selected: " + language_for_agent + ", provie short response in one language."
+            " Do not mix languages. If the user tries to mix languages, respond in " + language_for_agent + " only, and don't mention it to the user to use one language."
+            " Ensure the user provides Aadhaar number so you can verify their identity."
             " This is private knowledge: {know_base}."
             " We retrieved the following user info: {context}."
             " Provide a clear, concise, and helpful answer regarding the user's scheme status or last transaction."
