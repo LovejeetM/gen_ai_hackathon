@@ -74,7 +74,7 @@ def select_language():
 
 
 def get_agent_response(user_text):
-    from custom import chat_gen  # Remove importing chat_history
+    from custom import chat_gen  
 
     response = ""
     agent_stream = chat_gen(user_text, language_for_agent, history=chat_history, return_buffer=False)
