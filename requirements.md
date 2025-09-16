@@ -10,6 +10,7 @@ pip install langchain
 pip install langchain-core 
 pip install langchain-nvidia-ai-endpoints 
 pip install pydantic python-dotenv
+pip install pillow customtkinter
 
 ```
 ---
