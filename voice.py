@@ -151,26 +151,38 @@ def start_recording_flag():
         
         is_recording = True
 
+
+def process_and_respond(user_text):
+    """
+    This function runs in a background thread.
+    It gets the agent response and then plays the audio,
+    ensuring the GUI does not freeze.
+    """
+    agent_response = ""
+    agent_stream_generator = chat_gen(user_text, language_for_agent, history=chat_history, return_buffer=False)
+    for token in agent_stream_generator:
+        agent_response += token
+    
+    if agent_response:
+        print("\n[ Agent Response ]:", agent_response)
+        chat_history.append([user_text, agent_response])
+
+        rootmain.after(0, lambda: display_message(agent_response, 'agent'))
+        out(agent_response)
+
 def stop_recording_flag():
     global is_recording
     if is_recording:
         
         is_recording = False
-        filea = save_recording()
-    
+        filea = save_recording() 
         text1 = recognition(filea)
         if text1:
-            agent_response = ""
-            agent_stream = chat_gen(text1, language_for_agent, history=chat_history, return_buffer=False)
-            for token in agent_stream:
-                agent_response += token
-
-            print("\n[ Agent Response ]:", agent_response)
-            chat_history.append([text1, agent_response])
-        
-
-        out(agent_response)
-
+            display_message(text1, 'user')
+            
+            
+            thread = threading.Thread(target=process_and_respond, args=(text1,), daemon=True)
+            thread.start()
 
 
 def synthesize_speech_ffplay(text, model_filename):
@@ -494,8 +506,10 @@ def show_chat_interface():
         width=50,
         height=60,
         corner_radius=20,
-        fg_color="#D35B58",
-        hover_color="#C77C78"
+        fg_color="#AC3A38",
+        hover_color="#942B29"
+        # border_width=1,
+        # border_color="black"
     )
     back_button.place(relx=1.0, x=-20, y=15, anchor="ne")
     
@@ -506,8 +520,16 @@ def show_chat_interface():
     argsout = ",,,,,,,,,,,,"+greeting
     threading.Thread(target=out, args=(argsout,), daemon=True).start()
     chat_history.append([None, greeting])
-    chat_display = customtkinter.CTkFrame(rootmain, fg_color='#1e1f22', corner_radius=15)
+    # Scrollable: 
+    chat_display = customtkinter.CTkScrollableFrame(rootmain, fg_color='#1e1f22', corner_radius=15) #'#1e1f22'
+    chat_display._scrollbar.grid_forget()
+
     chat_display.pack(side='left', fill='both', expand=True, padx=10, pady=10)
+
+
+    # chat_display = customtkinter.CTkFrame(rootmain, fg_color='#1e1f22', corner_radius=15)
+    # chat_display.pack(side='left', fill='both', expand=True, padx=10, pady=10)
+
     display_message(greeting, 'agent')
     record_button = customtkinter.CTkButton(
         rootmain,
@@ -525,9 +547,9 @@ def show_chat_interface():
 
 
 def display_message(message, sender):
-    global rootmain
+    global rootmain, chat_display
     msg_frame = customtkinter.CTkFrame(chat_display, fg_color='transparent', corner_radius=15)  # 15
-    msg_frame.pack(anchor='w' if sender == 'agent' else 'e', fill='x', padx=20, pady=35)    #x10  y5
+    msg_frame.pack(anchor='w' if sender == 'agent' else 'e', fill='x', padx=20, pady=15)    #x10  y5
     color = '#4a90e2' if sender == 'agent' else '#2ecc71'
     msg_label = customtkinter.CTkLabel(
         msg_frame,
@@ -535,11 +557,12 @@ def display_message(message, sender):
         font=("Arial", 20), #13
         fg_color=color,
         text_color='white',
-        wraplength=350,  #350
+        wraplength=500,  #350
         justify='left',
-        corner_radius=22   #12
+        corner_radius=22   #12      
     )
     msg_label.pack(anchor='w' if sender == 'agent' else 'e', ipady=25, ipadx=25)  # x5 y5
+    rootmain.after(10, lambda: chat_display._parent_canvas.yview_moveto(1.0))
 
 
 
@@ -552,7 +575,8 @@ def toggle_recording():
             text="",  
             image=mic_icon,
             # relief=tk.SUNKEN,
-            fg_color="#155cba"
+            fg_color="#d62424",
+            hover_color="#bb1919"
             # activebackground="#155cba"
         )
         is_button_active_global = True
@@ -561,11 +585,13 @@ def toggle_recording():
             text="",
             image=mic_icon,
             # relief=tk.RAISED,
-            fg_color="#1a73e8"
+            fg_color="#1a73e8",
+            hover_color='#155cba'
             # activebackground="#1a73e8"
         )
         is_button_active_global = False
         rootmain.after(5, stop_recording_flag)
+        # stop_recording_flag()
 # tk Main ==============================================================================================
 
 
