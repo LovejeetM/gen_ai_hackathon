@@ -9,3 +9,5 @@ __pycache__/
 gui.py
 test.py
 voice_copy.py
+cst.py
+
