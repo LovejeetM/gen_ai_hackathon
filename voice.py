@@ -157,19 +157,19 @@ def stop_recording_flag():
         
         is_recording = False
         filea = save_recording()
-        if text1: 
-            text1 = recognition(filea)
-            if text1:
-                agent_response = ""
-                agent_stream = chat_gen(text1, language_for_agent, history=chat_history, return_buffer=False)
-                for token in agent_stream:
-                    agent_response += token
+    
+        text1 = recognition(filea)
+        if text1:
+            agent_response = ""
+            agent_stream = chat_gen(text1, language_for_agent, history=chat_history, return_buffer=False)
+            for token in agent_stream:
+                agent_response += token
 
-                print("\n[ Agent Response ]:", agent_response)
-                chat_history.append([text1, agent_response])
-            
+            print("\n[ Agent Response ]:", agent_response)
+            chat_history.append([text1, agent_response])
+        
 
-            out(agent_response)
+        out(agent_response)
 
 
 
