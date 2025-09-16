@@ -20,7 +20,6 @@ import base64
 
 import customtkinter
 
-
 # load_dotenv()
 # key = os.environ.get('API_KEY')
 
@@ -44,31 +43,40 @@ TRANSPARENT_COLOR = '#abcdef'
 lang_name = "English"
 lang_code = "en-IN"
 
+chat_history = []
+is_button_active_global = False
+
+BACK_ARROW_B64 = b"iVBORw0KGgoAAAANSUhEUgAAADIAAAAyCAYAAAAeP4ixAAAACXBIWXMAAAsTAAALEwEAmpwYAAAB10lEQVR4nO3XPY9MURzA4bNIWLEKEhIaiUq8RLOFhsLLB0AkohGFaDQSoaRCoaCi2YR6s6g0KDReQr8KIgqFRCLeVpb1yM2eSS6ZmZ3NPTN3jtznA5x7f5m55/xPCI1Go9FoNBr/N2zGSzwMucIefBCFHOEkZlsR2YVgOSbKAdmFYAOetovIJgS78L5TRBYhOIbv3SKGOgRLcXmhgKEOwdribLA4nzCNx5jEBRzA6roituONdObwHKexZlARh/BF//zAbWzqV8AILuK3wZjBFYyljFiFKfV4hR2pQp6p1zccSRHS8bQeoF/FeVU1ZAx3hiTmcIqP/VzcKuv0FVsrxQxo++3FNFamOhBf1xxzqXJIhRElpdkkf7EYswzXFvHwUayL9/hxHMRZ3Ig74183yh5MJgkpBZ2Io0VXPawzGu/5V/Guh5A5bBvqi1XcJffi/gJj0c2kIfHhG7tNARXWHY/TcTufixEqbcn8Q1fgVsqQApbgPH62Wbr6+NIJzsSTOElIC/bFQ7FsIvQT9uNjypACdscxv6X4NkdCP8Wt9gUeJF73+D+/ys6QK9wthZwKucKW0hB7PeQM92LIo5AzHI0hb0POsD6GzITcmR9jntT9Ho1GI9TjD22H/Nq+o1wxAAAAAElFTkSuQmCC"
+
+MIC_B64= b"iVBORw0KGgoAAAANSUhEUgAAADAAAAAwCAYAAABXAvmHAAAACXBIWXMAAAsTAAALEwEAmpwYAAACEElEQVR4nO2YP0scQRiHB3ORCBrbYE4tIiFGP0j+gN/CWFpai4WxUE9N/CAmnQmISRMsPSslFp5aaOOdiYXKIy8ZYXmZ5HZv59wxzAMHx87cb99nmX13b4yJRCJeAUaBClAFzu2nao+NmlABOoGPwDV/5wpYkbkmwOK/kp4vQUnw58pnZdkEtOZlaWRFfjMSgsASrbMQgsBODoHtEAQaOQTqIQjkwhRNFCiaKFA0UaBookDRBC9AkxP6FsC34P8g0FCZPWq8nqP+M5X12PvLHrCnQp+363UaeKHGd30IfFehr9X4Yg6BeZX1Vo1/8yEguwhJPqjxkRx/KV+qrFU1Z8mHwBsVegCUmkimoaIySkBNzXnlQ6AL+KWCxx3bKrJVkpZ14KHKmFBzZEOsK7eADZddtSSHjm4kEstNltOlzdLF9wLH/7o/8gr0ARfqBGtAh2Ou3BML0mFsC27Y7/N6zQuSAXxW2b+BJ8YnwIzjiq64JDJkdkhTcOROey0+cZPplip8kgdQC3mybPSVFzZ1k/Ap0Q8cOU4qx96lObG9EBOONX+bU25L8YkChoB93NRsL5fWOwx028+wfUitOlrlLT+BZ20tPiFRBrbwxw/g6Z0Ur5bCpO3XrXIBTAEP7rR4JTIIzAGnGQo/Ad4DAyYU7BN7DJgFNhxFb9gxmfPIhA4Kc98gChRMFCiaey8QMem4ATKfZRavGuKEAAAAAElFTkSuQmCC"
 
 
-def select_language():
-    languages = [
-        ("English", 'en-IN'),
-        ("Hindi", 'hi-IN'),
-        ("Malayalam", 'ml-IN'),
-        ("Telugu", 'te-IN'),
-    ]
+customtkinter.set_appearance_mode("dark")
 
-    title = "Select a language (use arrow keys and Enter): "
+
+# def select_language():
+#     languages = [
+#         ("English", 'en-IN'),
+#         ("Hindi", 'hi-IN'),
+#         ("Malayalam", 'ml-IN'),
+#         ("Telugu", 'te-IN'),
+#     ]
+
+#     title = "Select a language (use arrow keys and Enter): "
     
-    options = [f"{name}" for name, code in languages]
+#     options = [f"{name}" for name, code in languages]
 
-    selected_option, index = pick(options, title, indicator='======>', default_index=0)
+#     selected_option, index = pick(options, title, indicator='======>', default_index=0)
 
-    if index is not None:
-        selected_name, selected_code = languages[index]
-        print("-" * 50)
-        print(f"Selected Language: {selected_name}")
-        print("-" * 50)
-        print("\n"*2)
-        return selected_name, selected_code
+#     if index is not None:
+#         selected_name, selected_code = languages[index]
+#         print("-" * 50)
+#         print(f"Selected Language: {selected_name}")
+#         print("-" * 50)
+#         print("\n"*2)
+#         return selected_name, selected_code
     
-    return "English", 'en-IN'
+#     return "English", 'en-IN'
 
 
 # language_for_agent = {
@@ -149,18 +157,19 @@ def stop_recording_flag():
         
         is_recording = False
         filea = save_recording()
-        text1 = recognition(filea)
-        if text1:
-            agent_response = ""
-            agent_stream = chat_gen(text1, language_for_agent, history=chat_history, return_buffer=False)
-            for token in agent_stream:
-                agent_response += token
+        if text1: 
+            text1 = recognition(filea)
+            if text1:
+                agent_response = ""
+                agent_stream = chat_gen(text1, language_for_agent, history=chat_history, return_buffer=False)
+                for token in agent_stream:
+                    agent_response += token
 
-            print("\n[ Agent Response ]:", agent_response)
-            chat_history.append([text1, agent_response])
-        
+                print("\n[ Agent Response ]:", agent_response)
+                chat_history.append([text1, agent_response])
+            
 
-        out(agent_response)
+            out(agent_response)
 
 
 
@@ -358,12 +367,18 @@ def recognition(audiofile1):
         said_text = sr.recognize_google(audio_data, language=lang_code)
         print("You said:", said_text)
         return said_text
-    except sr.UnknownValueError:
+    except speech_recognition.UnknownValueError:
         print("Sorry, could not understand the audio.")
-    except sr.RequestError:
+        return None
+    except speech_recognition.RequestError:
         print("Error with the recognition service.")
-    except sr.WaitTimeoutError:
+        return None
+    except speech_recognition.WaitTimeoutError:
         print("Listening timed out.")
+        return None
+    except Exception as e:
+        print(f"Unexpected recognition error: {e}")
+        return None
 
 
 
@@ -382,42 +397,25 @@ def out(speechtext):
 
 # tk Main ==============================================================================================
 def makeroot():
-    global rootmain, is_button_active_global
-    rootmain = tk.Tk()
-    is_button_active_global = False
-
+    global rootmain
+    rootmain = customtkinter.CTk()
     rootmain.overrideredirect(True)
     rootmain.attributes('-topmost', True)
-
-    widget_width = 70
-    widget_height = 70
+    window_width = 960
+    window_height = 540
     screen_width = rootmain.winfo_screenwidth()
-
-    x_pos = screen_width - widget_width - 20
-    y_pos = 20
-    rootmain.geometry(f"{widget_width}x{widget_height}+{x_pos}+{y_pos}")
-
-    rootmain.configure(bg='#202124')
-
+    screen_height = rootmain.winfo_screenheight()
+    x_pos = (screen_width // 2) - (window_width // 2)
+    y_pos = (screen_height // 2) - (window_height // 2)
+    rootmain.geometry(f"{window_width}x{window_height}+{x_pos}+{y_pos}")
+    rootmain.configure(bg='#2c2f33')
     rootmain._drag_start_x = 0
     rootmain._drag_start_y = 0
     rootmain._window_start_x = 0
     rootmain._window_start_y = 0
-
     rootmain.bind("<ButtonPress-1>", on_widget_press)
     rootmain.bind("<B1-Motion>", on_widget_drag)
-
-    rootmain.record_button = tk.Button(
-        rootmain,
-        text="REC",
-        command=toggle_recording,
-        font=("Franklin Gothic", 12, "bold"),
-        relief=tk.RAISED,
-        bg="#1a73e8",
-        activebackground="#1a73e8"
-    )
-    rootmain.record_button.pack(expand=True, fill=tk.BOTH, padx=14, pady=14)
-
+    show_language_selection()
     rootmain.mainloop()
 
 
@@ -436,23 +434,135 @@ def on_widget_drag(event):
     new_y = rootmain._window_start_y + delta_y
     rootmain.geometry(f"+{new_x}+{new_y}")
 
+
+
+def show_language_selection():
+    global lang_name, lang_code, rootmain, button_frame, btn
+    for widget in rootmain.winfo_children():
+        widget.destroy()
+    languages = [("English", 'en-IN'), ("Hindi", 'hi-IN'), ("Malayalam", 'ml-IN'), ("Telugu", 'te-IN')]
+    def select_language(l_name, l_code):
+        global lang_name, lang_code, language_for_agent
+        lang_name = l_name
+        lang_code = l_code 
+        # selected_name = lang_name
+        # selected_code = lang_code
+        language_for_agent = {
+            'en-IN': 'english',
+            'hi-IN': 'hindi',
+            'ml-IN': 'malayalam',
+            'te-IN': 'telugu'
+        }.get(lang_code, 'english')
+        print("selected: ", language_for_agent)
+        # lang_name = selected_name
+        # lang_code = selected_code 
+        show_chat_interface()
+    button_frame = customtkinter.CTkFrame(rootmain, fg_color='transparent')
+    button_frame.place(relx=0.5, rely=0.5, anchor='center')
+    for i, (name, code) in enumerate(languages):
+        btn = customtkinter.CTkButton(
+            button_frame, text=name,
+            font=("Arial Rounded MT Bold", 28),  #22
+            fg_color='#1a73e8',
+            hover_color='#155cba',
+            command=lambda n=name, c=code: select_language(n, c),
+            corner_radius=25, #15
+            width=280,  #180
+            height=120,    #70
+
+            #border:
+            border_width=1,
+            border_color="black"
+        )
+        btn.grid(row=i//2, column=i%2, padx=35, pady=35) #btn.grid(row=i//2, column=i%2, padx=15, pady=15)
+
+
+
+def show_chat_interface():
+    global chat_display, record_button, mic_icon, rootmain, back_button
+    for widget in rootmain.winfo_children():
+        widget.destroy()
+
+    img_data = base64.b64decode(BACK_ARROW_B64)
+    img = Image.open(io.BytesIO(img_data))
+    back_icon = customtkinter.CTkImage(light_image=img, dark_image=img, size=(40, 40))
+    back_button = customtkinter.CTkButton(
+        rootmain,
+        text="",
+        image=back_icon,
+        command=show_language_selection,
+        width=50,
+        height=60,
+        corner_radius=20,
+        fg_color="#D35B58",
+        hover_color="#C77C78"
+    )
+    back_button.place(relx=1.0, x=-20, y=15, anchor="ne")
+    
+    img_data = base64.b64decode(MIC_B64)
+    img = Image.open(io.BytesIO(img_data))
+    mic_icon = customtkinter.CTkImage(light_image=img, dark_image=img, size=(60, 60))    ### BUTTON
+    greeting = initial_greeting(language_for_agent)
+    argsout = ",,,,,,,,,,,,"+greeting
+    threading.Thread(target=out, args=(argsout,), daemon=True).start()
+    chat_history.append([None, greeting])
+    chat_display = customtkinter.CTkFrame(rootmain, fg_color='#1e1f22', corner_radius=15)
+    chat_display.pack(side='left', fill='both', expand=True, padx=10, pady=10)
+    display_message(greeting, 'agent')
+    record_button = customtkinter.CTkButton(
+        rootmain,
+        text="",  # REC
+        image=mic_icon,
+        font=("Arial Rounded MT Bold", 24, "bold"),   #18
+        fg_color='#1a73e8',
+        hover_color='#155cba',
+        command=toggle_recording,
+        width=100, #120
+        height=120,
+        corner_radius= 50   #60
+    )
+    record_button.pack(side='right', padx=(20, 20), pady=20)  #  pdx = 30, 30    pady = 20
+
+
+def display_message(message, sender):
+    global rootmain
+    msg_frame = customtkinter.CTkFrame(chat_display, fg_color='transparent', corner_radius=15)  # 15
+    msg_frame.pack(anchor='w' if sender == 'agent' else 'e', fill='x', padx=20, pady=35)    #x10  y5
+    color = '#4a90e2' if sender == 'agent' else '#2ecc71'
+    msg_label = customtkinter.CTkLabel(
+        msg_frame,
+        text=message,
+        font=("Arial", 20), #13
+        fg_color=color,
+        text_color='white',
+        wraplength=350,  #350
+        justify='left',
+        corner_radius=22   #12
+    )
+    msg_label.pack(anchor='w' if sender == 'agent' else 'e', ipady=25, ipadx=25)  # x5 y5
+
+
+
+
 def toggle_recording():
-    global is_button_active_global, rootmain
+    global is_button_active_global, rootmain, record_button
     if not is_button_active_global:
         start_recording_flag()
-        rootmain.record_button.config(
-            text="STOP",
-            relief=tk.SUNKEN,
-            bg="#155cba",
-            activebackground="#155cba"
+        record_button.configure(
+            text="",  
+            image=mic_icon,
+            # relief=tk.SUNKEN,
+            fg_color="#155cba"
+            # activebackground="#155cba"
         )
         is_button_active_global = True
     else:
-        rootmain.record_button.config(
-            text="REC",
-            relief=tk.RAISED,
-            bg="#1a73e8",
-            activebackground="#1a73e8"
+        record_button.configure(
+            text="",
+            image=mic_icon,
+            # relief=tk.RAISED,
+            fg_color="#1a73e8"
+            # activebackground="#1a73e8"
         )
         is_button_active_global = False
         rootmain.after(5, stop_recording_flag)
@@ -461,22 +571,23 @@ def toggle_recording():
 
 # MAIN &&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&
 if __name__ == "__main__":
-    lang_name, lang_code = select_language()
-    language_for_agent = {
-        'en-IN': 'english',
-        'hi-IN': 'hindi',
-        'ml-IN': 'malayalam',
-        'te-IN': 'telugu'
-    }.get(lang_code, 'english')
+    # lang_name, lang_code = select_language()
+    # language_for_agent = {
+    #     'en-IN': 'english',
+    #     'hi-IN': 'hindi',
+    #     'ml-IN': 'malayalam',
+    #     'te-IN': 'telugu'
+    # }.get(lang_code, 'english')
+    
 
 
     # import after selecting the language
     from custom import initial_greeting, chat_gen, get_key_fn, chat_llm, instruct_chat, instruct_llm
 
     
-    chat_history = [[None, initial_greeting(language_for_agent)]]
-    argsout = ",,,,,,,,,,,,"+chat_history[0][1]
-    threading.Thread(target=out, args=(argsout,), daemon=True).start()
+    # chat_history = [[None, initial_greeting(language_for_agent)]]
+    # argsout = ",,,,,,,,,,,,"+chat_history[0][1]
+    # threading.Thread(target=out, args=(argsout,), daemon=True).start()
     
 
     while True:
