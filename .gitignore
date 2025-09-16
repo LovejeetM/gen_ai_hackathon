@@ -8,3 +8,4 @@ nltk11.py
 __pycache__/
 gui.py
 test.py
+voice_copy.py

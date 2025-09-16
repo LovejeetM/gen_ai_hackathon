@@ -181,7 +181,7 @@ def handle_audio_interaction():
             agent_response += token
         display_message(agent_response, 'agent')
         from main import out
-        threading.Thread(target=out, args=([",,,,,,,," + agent_response]), daemon=True).start()
+        # threading.Thread(target=out, args=([",,,,,,,," + agent_response]), daemon=True).start()
     is_button_active_global = False
     record_button.configure(text="REC", fg_color='#1a73e8')
 

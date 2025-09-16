@@ -14,6 +14,12 @@ import tkinter as tk
 from types import GeneratorType
 # from dotenv import load_dotenv
 
+from PIL import Image
+import io
+import base64
+
+import customtkinter
+
 
 # load_dotenv()
 # key = os.environ.get('API_KEY')
