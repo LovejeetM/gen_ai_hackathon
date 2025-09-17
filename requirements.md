@@ -1,5 +1,5 @@
 
-### Default packages work, only install these through terminal:
+### If there are dependency issues run these terminal:
 
 ```bash 
 pip install sounddevice

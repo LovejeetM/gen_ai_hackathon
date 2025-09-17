@@ -42,8 +42,8 @@ def get_scheme_info(user_data: dict, language_for_agent) -> str:
     Simulates DB lookup for user scheme info, matching both user_id (Aadhaar) and full name.
     """
     db = {
-        "123": {"name": "Sita", "scheme": "NREGA", "last_credit": "₹2500 on 15-Aug"},
-        "456": {"name": "Ramesh", "scheme": "PM-Kisan", "last_credit": "₹2000 on 23-Aug"},
+        "426456": {"name": "Sita", "scheme": "NREGA", "last_credit": "₹2500 on 15-Aug"},
+        "13456": {"name": "Ramesh", "scheme": "PM-Kisan", "last_credit": "₹2000 on 23-Aug"},
     }
 
     user_id = user_data['user_id']
