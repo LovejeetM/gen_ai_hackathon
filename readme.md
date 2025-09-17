@@ -2,6 +2,13 @@
 
 PRAGATI is a multilingual, AI-powered voice assistant designed to make welfare payments and government schemes instantly verifiable and accessible for rural and semi-urban citizens. It reduces the economic and social burden of repeated bank trips by providing a simple, local, and verifiable way to check financial status, withdrawals, and scheme eligibility—all in the user’s native language.
 
+
+<h3>                </h3>
+
+<h1>                </h1>
+
+---
+
 ####  Here is a video demo of the agent:
 
 ---
@@ -225,8 +232,8 @@ python voice.py
 
 ---
 
-## License
+## Licence
 
-This project is licensed under the MIT License. See the [LICENSE.txt](./LICENSE.txt) file for details.
+This project is licensed under the MIT License. See the [LICENCE.txt](./LICENCE.txt) file for details.
 
 ---
