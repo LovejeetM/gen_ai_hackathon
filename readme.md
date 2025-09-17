@@ -7,6 +7,8 @@ PRAGATI is a multilingual, AI-powered voice assistant designed to make welfare p
 ---
 
 
+https://github.com/user-attachments/assets/e45da63c-15cb-490b-a79f-d512d7762533
+
 
 ---
 
