@@ -104,7 +104,7 @@ PRAGATI is engineered with a modular, event-driven architecture to ensure a resp
 
 ---
 
-[![System Diagram](./diagram.svg)](./diagram.svg)
+![System Diagram](./diagram.svg)
 
 
 ---
