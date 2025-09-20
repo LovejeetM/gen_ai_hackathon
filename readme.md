@@ -97,6 +97,16 @@ PRAGATI is engineered with a modular, event-driven architecture to ensure a resp
 [User]  + [GUI Update]
 ```
 
+
+<h3>                </h3>
+
+<h1>                </h1>
+
+---
+
+[![System Diagram](./diagram.svg)](./diagram.svg)
+
+
 ---
 
 
